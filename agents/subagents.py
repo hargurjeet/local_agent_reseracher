@@ -1,7 +1,17 @@
+import json
+from typing import List
+from pydantic import BaseModel, Field
 from crewai import Agent, Task, Crew, LLM
 
 from src.state import Subtask
-from src.tools import list_workspace_files, read_file_content, save_subagent_findings
+
+class FileMoveProposal(BaseModel):
+    filename: str = Field(description="Name of the file including extension")
+    proposed_path: str = Field(description="Semantic relative target path within the category folder (e.g. Financial/tax_receipt.pdf)")
+
+class ProposedMovesList(BaseModel):
+    category: str = Field(description="The category of files processed")
+    proposals: List[FileMoveProposal] = Field(description="List of proposed file moves")
 
 class SubAgentRunner:
     def __init__(self, model_name: str = "llama3.2:latest"):
@@ -11,43 +21,44 @@ class SubAgentRunner:
             base_url="http://localhost:11434"
         )
 
-    def execute_task(self, subtask: Subtask) -> str:
+    def execute_category_task(self, subtask: Subtask) -> ProposedMovesList:
         """
-        Spawns a specialized subagent to execute a specific target task surgically.
+        Spawns a specialized subagent to semantically plan target paths for a category of files.
         """
-        # Define the specialized agent
+        # Define the specialized agent for this category
         agent = Agent(
-            role="Research Specialist",
-            goal=f"Examine the target path '{subtask.target_path}' and extract findings related to the objective.",
+            role=f"{subtask.category} Specialist",
+            goal=f"Determine semantic subfolder destinations for all files in the '{subtask.category}' category.",
             backstory=(
-                f"You are a focused research analyst. Your task is to investigate target path '{subtask.target_path}' "
-                f"and find information satisfying the description: '{subtask.description}'. "
-                "Use the provided tools surgically. Focus ONLY on this objective and avoid speculative analysis."
+                f"You are a file organization analyst specializing in the '{subtask.category}' file group. "
+                "You inspect filenames, understand their semantic context, and group them into logical subfolders. "
+                "For example, a receipt should go to a 'Finance' or 'Receipts' subfolder."
             ),
             verbose=True,
             allow_delegation=False,
-            tools=[list_workspace_files, read_file_content, save_subagent_findings],
             llm=self.llm
         )
 
-        # Define the task. Instruct the agent to execute findings, then save it using the Save Subagent Findings tool.
-        task_prompt = (
-            f"Analyze files under the target path: '{subtask.target_path}'\n"
-            f"Surgical Task Description: {subtask.description}\n\n"
-            "Steps:\n"
-            "1. List files in the target path using the 'List Workspace Files' tool if you need to discover files.\n"
-            "2. Read the contents of the relevant files using the 'Read File Content' tool.\n"
-            f"3. Consolidate your findings and save them to the local cache using the 'Save Subagent Findings' tool. "
-            f"Pass the argument 'task_id' as '{subtask.task_id}' and 'content' as the text summary of your findings.\n"
-            "4. Return the summary as your final response text."
-        )
+        files_list_str = "\n".join([f"- {f}" for f in subtask.files])
 
+        # Define the task
         task = Task(
-            description=task_prompt,
-            expected_output=f"A summary of findings for {subtask.task_id} saved to the local cache.",
-            agent=agent
+            description=(
+                f"Review this list of files categorized under '{subtask.category}':\n\n"
+                f"{files_list_str}\n\n"
+                f"Your goal is to suggest a neat, organized subfolder path for each file. "
+                "Create logical subfolders within the category. For example:\n"
+                "- Documents: receipts to 'Finance/Receipts/', books to 'Books/', logs to 'Logs/'\n"
+                "- Media: family photos to 'Photos/', videos to 'Videos/'\n"
+                "- Code: python files to 'Python/', configurations to 'Configs/'\n\n"
+                "Ensure every file in the input list is assigned a proposed path."
+            ),
+            expected_output="Structured JSON matching the ProposedMovesList schema.",
+            agent=agent,
+            output_json=ProposedMovesList
         )
 
+        # Run the crew
         crew = Crew(
             agents=[agent],
             tasks=[task],
@@ -55,4 +66,10 @@ class SubAgentRunner:
         )
 
         result = crew.kickoff()
-        return result.raw
+
+        if hasattr(result, 'pydantic') and result.pydantic:
+            return result.pydantic
+
+        # Fallback parsing
+        data = json.loads(result.raw)
+        return ProposedMovesList(**data)

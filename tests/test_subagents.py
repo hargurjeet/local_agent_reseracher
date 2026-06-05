@@ -1,51 +1,103 @@
 import os
 import sys
 
-# Ensure the project root is in the Python search path
+# Add the project root to Python search path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.state import Subtask
 from agents.subagents import SubAgentRunner
 
-def main():
-    # Define a surgical subtask to analyze our state file
-    task = Subtask(
+def test_document_subagent():
+    print("Testing Documents Subagent...")
+    subtask = Subtask(
         task_id="task_1",
-        description="Inspect state.py file, list the names of all Pydantic classes defined, and summarize their fields.",
-        target_path="src/"
+        category="Documents",
+        files=[
+            "tax_return_form.pdf",
+            "uber_receipt_may2026.pdf",
+            "attention_paper.pdf"
+        ]
     )
-    
-    print(f"Initializing SubAgentRunner using local Ollama model (llama3.2:latest)...")
     runner = SubAgentRunner()
-    
-    print(f"Executing subtask '{task.task_id}' on path '{task.target_path}'...")
-    print(f"Objective: '{task.description}'\n")
-    
     try:
-        # Run execution
-        result = runner.execute_task(task)
-        print("\n🟢 Subagent Execution finished!")
-        print(f"Output Raw Response:\n{result}")
-        
-        # Verify if findings were saved to local cache
-        findings_file = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "workspace", "raw_findings", f"{task.task_id}.txt"
-        )
-        
-        print(f"\n[Validation] Checking local cache path: '{findings_file}'...")
-        if os.path.exists(findings_file):
-            print("🟢 Validation Passed! Finding file was successfully saved.")
-            with open(findings_file, "r", encoding="utf-8") as f:
-                content = f.read()
-            print("\n--- CACHED FINDINGS CONTENT ---")
-            print(content)
-            print("--------------------------------")
-        else:
-            print("🔴 Validation Failed! Finding file was NOT saved to the local cache.")
-            
+        result = runner.execute_category_task(subtask)
+        print("\n🟢 Documents Subagent Output Success!\n")
+        print(f"Category: {result.category}")
+        for prop in result.proposals:
+            print(f" - {prop.filename} ──► {prop.proposed_path}")
+        print()
     except Exception as e:
-        print(f"🔴 Error executing subagent: {e}")
+        print(f"🔴 Documents Subagent failed: {e}")
+
+def test_media_subagent():
+    print("Testing Media Subagent...")
+    subtask = Subtask(
+        task_id="task_2",
+        category="Media",
+        files=[
+            "family_photo.png",
+            "vacation_video.mp4"
+        ]
+    )
+    runner = SubAgentRunner()
+    try:
+        result = runner.execute_category_task(subtask)
+        print("\n🟢 Media Subagent Output Success!\n")
+        print(f"Category: {result.category}")
+        for prop in result.proposals:
+            print(f" - {prop.filename} ──► {prop.proposed_path}")
+        print()
+    except Exception as e:
+        print(f"🔴 Media Subagent failed: {e}")
+
+def test_installer_subagent():
+    print("Testing Installers Subagent...")
+    subtask = Subtask(
+        task_id="task_3",
+        category="Installers",
+        files=[
+            "chrome_installer.dmg",
+            "python_setup.pkg"
+        ]
+    )
+    runner = SubAgentRunner()
+    try:
+        result = runner.execute_category_task(subtask)
+        print("\n🟢 Installers Subagent Output Success!\n")
+        print(f"Category: {result.category}")
+        for prop in result.proposals:
+            print(f" - {prop.filename} ──► {prop.proposed_path}")
+        print()
+    except Exception as e:
+        print(f"🔴 Installers Subagent failed: {e}")
+
+def test_code_subagent():
+    print("Testing Code Subagent...")
+    subtask = Subtask(
+        task_id="task_4",
+        category="Code",
+        files=[
+            "script.py",
+            "utils.js",
+            "styles.css"
+        ]
+    )
+    runner = SubAgentRunner()
+    try:
+        result = runner.execute_category_task(subtask)
+        print("\n🟢 Code Subagent Output Success!\n")
+        print(f"Category: {result.category}")
+        for prop in result.proposals:
+            print(f" - {prop.filename} ──► {prop.proposed_path}")
+        print()
+    except Exception as e:
+        print(f"🔴 Code Subagent failed: {e}")
 
 if __name__ == "__main__":
-    main()
+    test_document_subagent()
+    print("="*40)
+    test_media_subagent()
+    print("="*40)
+    test_installer_subagent()
+    print("="*40)
+    test_code_subagent()

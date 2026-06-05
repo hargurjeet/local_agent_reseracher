@@ -1,53 +1,73 @@
-# Local Agent Researcher - Implementation Plan (CrewAI Flow)
+# Local Agent Organizer - Implementation Plan (Step-by-Step Agent Build)
 
-This document tracks the implementation roadmap and progress for the Local Agent Researcher. The architecture organizes our agents into a unified event-driven **CrewAI Flow State Machine**, utilizing Ollama local models for inference.
-
----
-
-## Step 1: Build & Verify Lead Researcher (Planning & Parsing) — [COMPLETED & VERIFIED]
-*   **Objective**: Parse the user query and establish the structured research plan.
-*   **Implementation Details**:
-    *   Shared State: Defined in [src/state.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/state.py) as `ResearchState` and `Subtask` models.
-    *   Planner Agent: Implemented in [agents/lead_researcher.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/agents/lead_researcher.py) using the CrewAI `Agent` and `Task` frameworks.
-    *   Model Integration: Tied to local Ollama inference using `llama3.2:latest`.
-    *   Output Format: Enforces Pydantic structured output mapping to `LeadResearcherOutput`.
-*   **Validation**:
-    *   Verified via [tests/test_lead_researcher.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/tests/test_lead_researcher.py), which successfully queries the local model and asserts correct JSON schema parameters.
+This document tracks the incremental, stage-by-stage implementation plan for the **Downloads Folder Organizer**. Each stage focuses on building one specific agent and writing a dedicated validation test to verify it before moving forward.
 
 ---
 
-## Step 2: Build & Verify Sub-Agents (Scraping & Local Storage) — [COMPLETED & VERIFIED]
-*   **Objective**: Execute the planned subtasks surgically on the codebase and local directory files.
-*   **Implementation Details**:
-    *   File Tools: Implemented in [src/tools.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/tools.py). Custom tools handle listing files, reading text (capped to 50KB to preserve context), and saving results to `workspace/raw_findings/`.
-    *   Ollama Argument Fix: Added input validation inside the tools to normalize dictionary wrappers passed by smaller models (such as `llama3.2`).
-    *   Parallel execution loop: Integrates `concurrent.futures.ThreadPoolExecutor` in [src/main.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/main.py) to trigger subagent model executions in parallel threads.
-*   **Validation**:
-    *   Verified via [tests/test_subagents.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/tests/test_subagents.py), which runs a subagent to parse `state.py` and logs the cache output to `workspace/raw_findings/task_1.txt`.
+## Design Constraints
+* **Framework**: All agents MUST be developed using **CrewAI**.
+* **LLM Engine**: All model inference and LLM calls MUST go through **Ollama** local models.
+* **Coding Style**: Maintain simplicity first. Avoid complex, over-engineered abstractions. Write clean, readable, and simple Python functions that are easy to follow.
 
 ---
 
-## Step 3: Build & Verify Citation Agent (Post-Processing & Document Mapping) — [PENDING]
-*   **Objective**: Ensure that all research findings are linked to their source files and lines (Zero Slop / Relentless Verification).
-*   **Architecture**:
-    *   Read the aggregated summaries from the sub-agent output cache.
-    *   Implement the **Citation Agent** whose sole role is to verify statements and map them back to the exact files/lines.
-    *   Format findings into a clean Markdown document with numbered citation footnotes linking to the source files in the local codebase.
-*   **Tasks**:
-    *   Create `agents/citation_agent.py` (inheriting CrewAI specifications).
-*   **Verification**:
-    *   Write a simplified validation script `tests/test_citation_agent.py`.
+## Stage 1: Build & Verify Orchestrator Agent — [COMPLETED & VERIFIED]
+* **Objective**: Build the `Orchestrator Agent` that scans the target directory, categorizes the files, and creates subtasks.
+* **Tasks**:
+  * Implement `FileMetadata` and `FolderOrganizeState` schemas in [src/state.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/state.py).
+  * Write the directory scanner tool `list_directory_metadata` in [src/tools.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/tools.py).
+  * Create `agents/orchestrator.py` containing the Orchestrator agent using local Ollama parsing.
+* **Testing & Verification**:
+  * Verified via [tests/test_orchestrator.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/tests/test_orchestrator.py), which successfully scans directory files, triggers the Ollama planner, and categorizes them into structured Pydantic `Subtask` objects.
 
 ---
 
-## Step 4: Connect Everything into a Single CrewAI Flow State Machine — [PENDING]
-*   **Objective**: Integrate the Lead Researcher, Sub-Agents, and Citation Agent into a single orchestrator state machine.
-*   **Architecture**:
-    *   Utilize **CrewAI Flows** to manage the execution lifecycle.
-    *   Define event handlers using `@start` (Lead Researcher planning) and `@listen` (triggering sub-agent execution, followed by the citation post-processing step).
-    *   Enable state persistence and recovery.
-*   **Tasks**:
-    *   Integrate handlers inside `src/main.py` using CrewAI's `Flow` class.
-*   **Verification**:
-    *   Perform end-to-end integration tests by executing a full research query.
-    *   Verify that `workspace/research_report.md` is compiled successfully with correct citations.
+## Stage 2: Build & Verify Categorical Class Specialists — [COMPLETED & VERIFIED]
+* **Objective**: Build the specialized subagents that take file groups and formulate semantic target paths.
+* **Tasks**:
+  * Create `agents/subagents.py` defining the specialized subagents (Documents, Media, Installers/Archives).
+  * Define the input/output schemas for the subagent outputs.
+  * Integrate parallel execution of subagents using `ThreadPoolExecutor` inside [src/main.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/main.py).
+* **Testing & Verification**:
+  * Verified via [tests/test_subagents.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/tests/test_subagents.py), which feeds Document and Media file lists to categorical specialists and successfully outputs structured target directory proposals.
+
+---
+
+## Stage 3: Build & Verify Executor Agent — [COMPLETED & VERIFIED]
+* **Objective**: Build the `Executor Agent` that aggregates mappings, creates directories, and safely executes file movements.
+* **Tasks**:
+  * Create `agents/executor.py` containing the Executor agent definition.
+  * Implement safe file-operation tools (`create_directory`, `move_file`) in [src/tools.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/tools.py).
+  * Implement the writing of a transaction rollback log (`workspace/history.json`).
+* **Testing & Verification**:
+  * Verified via [tests/test_executor.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/tests/test_executor.py), which feeds a mock organization map, executes the physical moves in the sandbox, creates required subfolders, and outputs the completed log.
+
+
+---
+
+## Stage 4: Build & Verify Human-in-the-Loop Gateway — [COMPLETED & VERIFIED]
+* **Objective**: Integrate the interactive console gate and dry-run preview capabilities.
+* **Tasks**:
+  * Build the plan-aggregation module that formats proposed moves into a clean table using `Rich`.
+  * Implement the terminal validation prompt asking for user approval `(y/n)` before execution.
+  * Implement a `--dry-run` flag to display the plan table without modifying files.
+* **Testing & Verification**:
+  * Verified via [tests/test_hitl.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/tests/test_hitl.py), which checks:
+    1. Dry-run mode exits safely with `"awaiting_approval"` and moves no files.
+    2. Interactive rejection exits safely with `"aborted"` and moves no files.
+    3. Interactive approval triggers Stage 3 executor, moves files, writes log, and exits with `"executed"`.
+
+
+---
+
+## Stage 5: Sandbox Testing & End-to-End Rollback — [PENDING]
+* **Objective**: Create the testing sandbox environment and verify rollback/undo functionality.
+* **Tasks**:
+  * Write the sandbox utility `seed_mock_downloads()` in `tests/conftest.py` to easily spawn mock files of various types.
+  * Implement the `--undo` command line flag to reverse all operations recorded in `history.json`.
+* **Testing & Verification**:
+  * Run a complete end-to-end integration test:
+    1. Seed the mock folder.
+    2. Run the organizer in dry-run mode (verify output table).
+    3. Run in live mode, approve via HITL prompt (verify files are correctly organized).
+    4. Run the `--undo` command (verify all files are restored to their original state).

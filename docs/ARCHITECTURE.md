@@ -1,15 +1,16 @@
-# Local Agent Researcher - Architecture
+# Local Agent Organizer - Architecture
 
-This project is a CLI-based local agent researcher designed to analyze local codebases, search documentation, and perform research tasks. It is built strictly following **Ollama Developer & Agent Guidelines (adapted from Karpathy's principles)** and orchestrated via **CrewAI**.
+This document describes the design, concurrency flow, and architectural goals of the **Downloads Folder Organizer** agent system, which utilizes local Ollama models and CrewAI to semantically organize cluttered directories.
 
 ---
 
 ## Architectural Goals
 
-1. **Simplicity First**: Minimal codebase, avoiding bloated abstractions.
-2. **Context Preservation**: Leverage lightweight, focused subagents to keep individual agent contexts clean.
-3. **Goal-Driven Concurrency**: Subagent research tasks are spawned and run in parallel using python threads, with raw findings cached to disk.
-4. **State Persistence**: Track shared states in a unified Flow object and cache intermediate findings locally to support zero-waste retries.
+1. **Semantic Classification over Extension Sorting**: Instead of basic extension-based sorting (e.g., all `.pdf` files to `Documents/`), the agents inspect filenames and metadata to classify files contextually (e.g., moving `tax_2025.pdf` to `Documents/Financial/` and `attention_paper.pdf` to `Documents/Learning/`).
+2. **Context Budgets (Partitioned Execution)**: Large folders containing hundreds of files cannot be passed to a single LLM prompt due to context limits. The system uses a hierarchical division where lists are categorized first, and then analyzed by specialized subagents in isolated contexts.
+3. **Local Concurrency**: Subagent tasks are executed in parallel threads using `ThreadPoolExecutor` to speed up processing on local Ollama configurations.
+4. **Safety Gates (Human-in-the-Loop)**: Execution is non-destructive and transactional. No files are moved until the final consolidated plan is approved by the user via a terminal command line prompt.
+5. **Repeatability & Recovery**: Every operation is logged to a `history.json` transaction log, enabling rollback support.
 
 ---
 
@@ -19,25 +20,26 @@ This project is a CLI-based local agent researcher designed to analyze local cod
 local_agent_reseracher/
 ├── agents/                  # CrewAI Agent Definitions
 │   ├── __init__.py
-│   ├── lead_researcher.py   # Step 1: Query planning agent
-│   └── subagents.py         # Step 2: Surgical research specialist
+│   ├── orchestrator.py      # Scan directory & partition tasks
+│   ├── subagents.py         # Category-specific semantic planning
+│   └── executor.py          # Merges plans and performs file operations
 ├── docs/                    # Reorganized Project Documentation
-│   ├── AGENTS.md            # CrewAI agent roles & prompts
+│   ├── AGENTS.md            # Agent roles & prompts configuration
 │   ├── ARCHITECTURE.md      # Architectural design (this file)
 │   ├── OLLAMA.md            # Local execution guidelines
-│   ├── Untitled.png         # Flow chart diagram
-│   ├── requirements.txt     # Python requirements list
 │   └── implementation_plan.md # Roadmap & Progress log
 ├── src/                     # Core Orchestration Source Code
 │   ├── __init__.py
 │   ├── main.py              # Orchestrator entry point & ThreadPool loop
-│   ├── state.py             # Pydantic ResearchState & Subtask schemas
-│   └── tools.py             # Classless file manipulation and saving tools
-├── tests/                   # Simplified Standalone Validation Runners
-│   ├── test_lead_researcher.py # Runs Step 1 checks
+│   ├── state.py             # Pydantic state schemas
+│   └── tools.py             # Sandbox-isolated file movement tools
+├── tests/                   # Standalone Validation & Sandbox Seeding
+│   ├── conftest.py          # Sandbox folder creation & cleanup fixtures
+│   ├── test_orchestrator.py # Runs Step 1 checks
 │   └── test_subagents.py    # Runs Step 2 checks
 └── workspace/               # Local cache & findings directory
-    └── raw_findings/        # Cached text outputs from subagents (e.g. task_1.txt)
+    ├── raw_findings/        # Cache folders for subagent proposed mappings
+    └── history.json         # Transaction log mapping source to destination
 ```
 
 ---
@@ -46,26 +48,26 @@ local_agent_reseracher/
 
 ```mermaid
 graph TD
-    User([User Request]) --> Coordinator[Coordinator src/main.py]
-    Coordinator --> Planner[Lead Researcher agents/lead_researcher.py]
-    Planner -->|Returns LeadResearcherOutput| Coordinator
+    User([Downloads Folder Link]) --> Coordinator[Coordinator src/main.py]
+    Coordinator --> Planner[Orchestrator Agent agents/orchestrator.py]
+    Planner -->|Returns FolderOrganizeState| Coordinator
     Coordinator -->|ThreadPoolExecutor Spawn| Subagents[Sub-Agents agents/subagents.py]
     
     subgraph Parallel Subagent Execution
-        Subagents -->|Tool: List Workspace Files| F1[FS Inspection]
-        Subagents -->|Tool: Read File Content| F2[File Reading]
-        Subagents -->|Tool: Save Findings| Cache[Disk Cache workspace/raw_findings/]
+        Subagents -->|Tool: Get Category Files| F1[Target Inspection]
+        Subagents -->|Tool: Write Proposed Moves| Cache[Disk Cache workspace/raw_findings/]
     end
     
     Cache --> Coordinator
-    Coordinator -->|Verification Phase| Verifier[Citation Agent PENDING]
-    Verifier -->|Verification Passed| Output[Markdown Report PENDING]
+    Coordinator -->|Console Table Preview| HITL{Human Approval Gate}
+    HITL -->|Yes| Executor[Executor Agent agents/executor.py]
+    Executor -->|Move Files| FS[(File System)]
+    HITL -->|No| Abort([Abort / Safe Exit])
 ```
 
 ### Concurrency Model
-- **ThreadPoolExecutor**: Since subagent model generation calls are I/O bound, `ThreadPoolExecutor` is utilized inside [src/main.py](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/main.py) to trigger Ollama requests concurrently. This enables the subagents to query, read, and write findings parallelly.
+* **ThreadPoolExecutor**: Since subagent model prompts run concurrently, the orchestrator triggers them in parallel threads inside `src/main.py` to minimize total inference wait time.
 
 ### Short-Term Memory Management
-- **Context Isolation**: Subagents execute in isolated threads. They only see the specific target path and subtask details.
-- **Payload Caps**: Read tools are capped at a maximum of 50KB to preserve model context limits and prevent parsing issues.
-- **Disk Caching**: Subagents cache findings under `workspace/raw_findings/{task_id}.txt`, which downstream verification tasks consume.
+* **State Structuring**: Track shared states in a unified `FolderOrganizeState` schema.
+* **Disk Caching**: Subagents cache findings under `workspace/raw_findings/{category}_plan.json`, which the downstream aggregation step consumes. This provides a resilient boundary.

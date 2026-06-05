@@ -2,4 +2,19 @@
 __pycache__/
 *.pyc
 .DS_Store
-workspace/raw_findings/task_*.txt
+
+# Exclude dynamic workspace data and history logs
+workspace/raw_findings/
+workspace/history.json
+
+# Exclude local sandbox testing folders
+test_downloads/
+tests/mock_*/
+tests/mock_downloads/
+tests/mock_executor_downloads/
+tests/mock_executor_workspace/
+tests/mock_hitl_downloads/
+tests/mock_hitl_workspace/
+tests/mock_integration_downloads/
+tests/mock_integration_workspace/
+
