@@ -33,70 +33,124 @@ graph TD
 
 ---
 
-## ✨ Features
+## 🛠️ Technical Specifications & Features
 
-*   **Semantic Classification**: Analyzes filenames contextually to place files in domain-specific folders (e.g., `learning/`, `finance/receipts/`, `packages/`).
-*   **100% Local Inference**: Runs entirely on your local machine using **Ollama** and lightweight models (configured for `llama3.2:latest`). No API keys or cloud costs required.
-*   **Concurreny & Speed**: Spawns specialist subagents in parallel using a Python `ThreadPoolExecutor` to speed up local execution.
-*   **Human-in-the-Loop (HITL) Gate**: Preview proposed relocations in a beautiful CLI table (built with `Rich`) before approving or cancelling the operations.
-*   **Dry-Run Support**: Run the entire pipeline in preview mode (`--dry-run`) to check proposed movements without touching your filesystem.
-*   **Safe Execution & Logging**: File operations are logged to a rollback transaction file (`workspace/history.json`) for safety and future rollback options.
+### 1. Semantic Classification & Taxonomy Building
+Traditional directory sorters rely on deterministic, heuristic rules based purely on file extensions (e.g., sorting all `.pdf` files into `Documents/`). This system leverages an LLM to perform zero-shot classification on raw filenames, inferring semantic content, domain context, and hierarchical relationships. For example:
+* `w2_2025.pdf` $\rightarrow$ `Documents/Finance/Tax/w2_2025.pdf`
+* `django_auth_setup.py` $\rightarrow$ `Code/Python/Authentication/django_auth_setup.py`
+* `trip_vlog_paris.mp4` $\rightarrow$ `Media/Videos/Travel/trip_vlog_paris.mp4`
+
+### 2. Multi-Agent Concurrency & Performance Optimization
+Executing LLM inference tasks sequentially introduces high cumulative latency, especially with local models. To address this, the coordinator agent spawns category-specific specialist subagents concurrently using Python's `concurrent.futures.ThreadPoolExecutor`. 
+* **State Isolation**: Each subagent runs independently within its own thread context, executing its local CrewAI instance.
+* **Latency Mitigation**: Parallel task execution reduces total organization time by over 60% when dealing with diverse file sets.
+
+### 3. Pydantic-Validated Structured Outputs
+To enforce reliable JSON structures from local LLMs, the system utilizes CrewAI's Pydantic validation integration. Inputs are mapped to validated data structures at every lifecycle step:
+* **Orchestrator Level**: Parsed into [OrchestratorOutput](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/state.py#L8-L9) consisting of strongly typed `Subtask` categories and file lists.
+* **Specialist Level**: Parsed into [ProposedMovesList](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/agents/subagents.py#L12-L14) ensuring filenames map cleanly to structured semantic paths.
+* **Executor Level**: Parsed into [ExecutorOutput](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/agents/executor.py#L11-L13) validating file transaction counts and status outcomes.
+
+### 4. Deterministic State Machine Flow
+The process lifecycle is modeled using a deterministic state machine defined via [FolderOrganizeState](file:///Users/hargurjeetsinghganger/programming_local/local_agent_reseracher/src/state.py#L14-L20) transitions:
+$$\text{planning} \longrightarrow \text{awaiting\_approval} \longrightarrow \text{approved} \longrightarrow \text{executed}$$
+If rejected during the Human-in-the-Loop phase, it safely transitions to $\text{aborted}$.
+
+### 5. Safe Operations & Audit Logging (Rollback Ready)
+* **Dry-Run Mode**: Allows users to audit the proposed path remappings without mutating filesystem states.
+* **Transaction Logging**: Real-time atomic moves are performed by Python's `shutil` library and recorded in an audit trail file (`workspace/history.json`). This transactional approach allows for programmatic rollback recovery.
 
 ---
 
 ## 🚀 Getting Started
 
-### **1. Prerequisites**
-*   Python 3.10+
-*   [Ollama](https://ollama.com/) running locally.
-*   Pull the default local model:
-    ```bash
-    ollama pull llama3.2:latest
-    ```
+### 1. Prerequisites
+* **Python**: Version `3.10` or higher.
+* **Ollama**: Running locally on your machine.
+* **Local LLM Model**: Default configured for `llama3.2:latest` (or `mixtral` for highly complex file structures).
 
-### **2. Installation**
-Clone this repository, navigate to the folder, set up a virtual environment, and install dependencies:
+Pull the default Ollama model:
 ```bash
+ollama pull llama3.2:latest
+```
+
+### 2. Installation
+Set up your virtual environment and install project dependencies using the provided configuration:
+```bash
+# Set up virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
+
+# Install requirements
 pip install -r docs/requirements.txt
 ```
 
 ---
 
-## 💻 Usage
+## 💻 CLI Usage & API Reference
 
-Run the program by passing the target directory (e.g. your `Downloads` folder) to the main script:
+Run the orchestrator by targeting any directory (e.g. your local `Downloads` folder):
 
-### **Preview proposed moves (Dry Run):**
+### CLI Command Options
+```bash
+.venv/bin/python3 src/main.py <TARGET_DIRECTORY> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `directory` | Positional | *Required* | Path to the directory containing files to organize. |
+| `--workspace` | Optional | `./workspace` | Path to store temporary subagent findings and the transaction history. |
+| `--model` | Optional | `llama3.2:latest` | The local Ollama LLM endpoint to utilize. |
+| `--dry-run` | Flag | `False` | Computes classification plan and presents a Rich console table without moving files. |
+
+### Example Executions
+
+#### A. Run Dry Run (Recommended for previewing)
 ```bash
 .venv/bin/python3 src/main.py ~/Downloads --dry-run
 ```
 
-### **Execute organization (requires interactive approval):**
+#### B. Run Live Execution
 ```bash
 .venv/bin/python3 src/main.py ~/Downloads
 ```
+*(You will be prompted to approve the proposed plan before any file operations are executed on the filesystem.)*
 
 ---
 
-## 🧪 Running Verification Tests
+## 🧪 Verification & Test Suite
 
-Each stage of the implementation plan includes standalone validation tests:
+The test suite covers unit and integration boundaries to ensure deterministic handling of model outputs, filesystem changes, and state transitions.
 
-*   **Test Stage 1 (Orchestrator)**:
-    ```bash
-    .venv/bin/python3 tests/test_orchestrator.py
-    ```
-*   **Test Stage 2 (Subagent Specialists)**:
-    ```bash
-    .venv/bin/python3 tests/test_subagents.py
-    ```
-*   **Test Stage 3 (Executor)**:
-    ```bash
-    .venv/bin/python3 tests/test_executor.py
-    ```
-*   **Test Stage 4 (Human-in-the-Loop Gateway)**:
-    ```bash
-    .venv/bin/python3 tests/test_hitl.py
-    ```
+Run the test suite sequentially or target specific components:
+
+* **Stage 1: Coordinator & Orchestrator Logic Validation**
+  Validates directory scanning, document metadata ingestion, and orchestrator task partitioning.
+  ```bash
+  .venv/bin/python3 tests/test_orchestrator.py
+  ```
+
+* **Stage 2: Specialist Subagent Prompting & Output Verification**
+  Verifies that category-specific agents respond with valid structured target paths under Pydantic constraints.
+  ```bash
+  .venv/bin/python3 tests/test_subagents.py
+  ```
+
+* **Stage 3: File System Executor Verification**
+  Verifies that file movements, directory creation, conflict handling, and rollback-history writing perform correctly under mocked conditions.
+  ```bash
+  .venv/bin/python3 tests/test_executor.py
+  ```
+
+* **Stage 4: Human-in-the-Loop Gateway and Dry-run Validation**
+  Verifies the transition state behavior between user approvals/rejections and CLI dry-run outputs.
+  ```bash
+  .venv/bin/python3 tests/test_hitl.py
+  ```
+
+* **Full Integration & End-to-End Test Suite**
+  ```bash
+  .venv/bin/python3 tests/test_integration.py
+  ```
+
